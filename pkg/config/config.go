@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -56,7 +57,7 @@ func DefaultConfigFilePath() (string, error) {
 // If the file does not exist, it returns a default Config with RepoPath populated.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		repoDefault, _ := DefaultRepoPath()
 		return &Config{
 			RepoPath: repoDefault,
@@ -85,5 +86,6 @@ func (c *Config) Save(path string) error {
 	if err != nil {
 		return err
 	}
+	data = append(data, '\n')
 	return os.WriteFile(path, data, 0644)
 }

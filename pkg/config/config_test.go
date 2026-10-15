@@ -34,8 +34,12 @@ func TestLoadAndSaveConfig(t *testing.T) {
 		t.Fatalf("Failed to save config: %v", err)
 	}
 
-	if _, err := os.Stat(cfgPath); err != nil {
-		t.Fatalf("Config file does not exist on disk: %v", err)
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to read saved config file: %v", err)
+	}
+	if len(data) == 0 || data[len(data)-1] != '\n' {
+		t.Errorf("Expected trailing newline in saved config file")
 	}
 
 	loaded, err := Load(cfgPath)
@@ -95,12 +99,18 @@ func TestLoadEmptyRepoPathUsesDefault(t *testing.T) {
 }
 
 func TestSaveInvalidPath(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "not-a-directory")
+	if err := os.WriteFile(filePath, []byte("file content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	cfg := &Config{
 		RemoteURL: "git@github.com:test/repo.git",
 	}
-	// Path with illegal filename characters or an invalid location
-	invalidPath := filepath.Join("Z:", "nonexistent_drive_dotsaver_test", "sub", "config.json")
+	// Attempting to create a directory inside a regular file will fail portably on both Windows and Linux.
+	invalidPath := filepath.Join(filePath, "sub", "config.json")
 	if err := cfg.Save(invalidPath); err == nil {
-		t.Errorf("Expected Save to fail on non-existent drive path, got nil")
+		t.Errorf("Expected Save to fail when parent path contains a regular file, got nil")
 	}
 }
