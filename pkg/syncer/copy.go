@@ -53,27 +53,51 @@ func IsIdentical(pathA, pathB string) (bool, error) {
 		return hashA == hashB, nil
 	}
 
-	// For directories, compare all files recursively
+	// For directories, compare all files and subdirectories recursively
+	dirsA := make(map[string]bool)
 	filesA := make(map[string]os.FileInfo)
 	_ = filepath.Walk(pathA, func(p string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() {
-			rel, _ := filepath.Rel(pathA, p)
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(pathA, p)
+		if rel == "." {
+			return nil
+		}
+		if info.IsDir() {
+			dirsA[rel] = true
+		} else {
 			filesA[rel] = info
 		}
 		return nil
 	})
 
+	dirsB := make(map[string]bool)
 	filesB := make(map[string]os.FileInfo)
 	_ = filepath.Walk(pathB, func(p string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() {
-			rel, _ := filepath.Rel(pathB, p)
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(pathB, p)
+		if rel == "." {
+			return nil
+		}
+		if info.IsDir() {
+			dirsB[rel] = true
+		} else {
 			filesB[rel] = info
 		}
 		return nil
 	})
 
-	if len(filesA) != len(filesB) {
+	if len(dirsA) != len(dirsB) || len(filesA) != len(filesB) {
 		return false, nil
+	}
+
+	for rel := range dirsA {
+		if !dirsB[rel] {
+			return false, nil
+		}
 	}
 
 	for rel, infoA := range filesA {
@@ -98,7 +122,15 @@ func IsIdentical(pathA, pathB string) (bool, error) {
 }
 
 // CopyFile copies a single file from src to dst, creating any necessary parent directories.
-func CopyFile(src, dst string) error {
+// It guards against truncating src when src and dst resolve to the same physical file,
+// and ensures dstFile.Close() errors are caught and returned.
+func CopyFile(src, dst string) (err error) {
+	cleanSrc := filepath.Clean(src)
+	cleanDst := filepath.Clean(dst)
+	if cleanSrc == cleanDst {
+		return nil
+	}
+
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
@@ -106,10 +138,18 @@ func CopyFile(src, dst string) error {
 	defer srcFile.Close()
 
 	srcInfo, err := srcFile.Stat()
-	perm := os.FileMode(0644)
-	if err == nil {
-		perm = srcInfo.Mode().Perm()
+	if err != nil {
+		return err
 	}
+
+	// Guard against truncating same physical file (rel vs abs, hardlinks, symlinks)
+	if dstInfo, err := os.Stat(dst); err == nil {
+		if os.SameFile(srcInfo, dstInfo) {
+			return nil
+		}
+	}
+
+	perm := srcInfo.Mode().Perm()
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
@@ -119,18 +159,41 @@ func CopyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
+	defer func() {
+		closeErr := dstFile.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
 
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+	if _, err = io.Copy(dstFile, srcFile); err != nil {
+		return err
+	}
+
+	// Update permissions in case dst file already existed
+	_ = os.Chmod(dst, perm)
+
+	return nil
 }
 
 // CopyDir recursively copies the directory tree at src to dst.
 func CopyDir(src, dst string) error {
+	cleanSrc := filepath.Clean(src)
+	cleanDst := filepath.Clean(dst)
+	if cleanSrc == cleanDst {
+		return nil
+	}
+
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
+	if dstInfo, err := os.Stat(dst); err == nil {
+		if os.SameFile(srcInfo, dstInfo) {
+			return nil
+		}
+	}
+
 	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
 		return err
 	}

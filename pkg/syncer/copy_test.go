@@ -238,3 +238,86 @@ func TestCopyErrors(t *testing.T) {
 		t.Errorf("Expected error copying non-existent entry, got nil")
 	}
 }
+
+func TestCopySameFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "same.txt")
+	content := []byte("important content that should not be truncated")
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Identical paths
+	if err := CopyFile(filePath, filePath); err != nil {
+		t.Fatalf("CopyFile on identical paths returned error: %v", err)
+	}
+
+	readBack, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(readBack) != string(content) {
+		t.Fatalf("File was corrupted/truncated! Expected %q, got %q", string(content), string(readBack))
+	}
+
+	// 2. Relative vs absolute path resolving to same file
+	relPath := filepath.Join(".", "testdata_same.tmp")
+	if err := os.WriteFile(relPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(relPath)
+
+	absPath, err := filepath.Abs(relPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CopyFile(relPath, absPath); err != nil {
+		t.Fatalf("CopyFile on same file via rel/abs returned error: %v", err)
+	}
+
+	readBackRel, err := os.ReadFile(relPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(readBackRel) != string(content) {
+		t.Fatalf("File was corrupted/truncated via rel/abs! Expected %q, got %q", string(content), string(readBackRel))
+	}
+}
+
+func TestCopySameDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	nestedDir := filepath.Join(tmpDir, "folder")
+	if err := os.MkdirAll(nestedDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "f.txt"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CopyDir(nestedDir, nestedDir); err != nil {
+		t.Fatalf("CopyDir on same dir failed: %v", err)
+	}
+}
+
+func TestIsIdenticalEmptyDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	dirA := filepath.Join(tmpDir, "dirA")
+	dirB := filepath.Join(tmpDir, "dirB")
+
+	if err := os.MkdirAll(filepath.Join(dirA, "empty_subdir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dirB, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// dirA has an empty subdir, dirB has none. They should NOT be identical.
+	same, err := IsIdentical(dirA, dirB)
+	if err != nil {
+		t.Fatalf("IsIdentical failed: %v", err)
+	}
+	if same {
+		t.Errorf("Expected IsIdentical to be false when one dir has empty subdir")
+	}
+}
