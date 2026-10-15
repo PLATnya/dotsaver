@@ -15,7 +15,20 @@ func TestCheckGitInstalled(t *testing.T) {
 	}
 }
 
+func setupTestGitIdentity(t *testing.T, repoPaths ...string) {
+	t.Helper()
+	t.Setenv("GIT_AUTHOR_NAME", "dotsaver-test")
+	t.Setenv("GIT_AUTHOR_EMAIL", "test@example.com")
+	t.Setenv("GIT_COMMITTER_NAME", "dotsaver-test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "test@example.com")
+	for _, repoPath := range repoPaths {
+		_, _ = runCmd(repoPath, "config", "user.name", "dotsaver-test")
+		_, _ = runCmd(repoPath, "config", "user.email", "test@example.com")
+	}
+}
+
 func TestGitServiceWithLocalBareRepo(t *testing.T) {
+	setupTestGitIdentity(t)
 	svc := New()
 	if err := svc.CheckGitInstalled(); err != nil {
 		t.Skip("Git not installed on system, skipping")
@@ -36,6 +49,7 @@ func TestGitServiceWithLocalBareRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureRepo failed: %v", err)
 	}
+	setupTestGitIdentity(t, clientRepo)
 
 	// Initial repo should be clean
 	clean, err := svc.IsClean(clientRepo)
@@ -87,6 +101,7 @@ func TestGitServiceWithLocalBareRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureRepo client2 failed: %v", err)
 	}
+	setupTestGitIdentity(t, clientRepo2)
 
 	if _, err := os.Stat(filepath.Join(clientRepo2, "test.txt")); err != nil {
 		t.Errorf("test.txt was not pulled to client2: %v", err)
@@ -170,6 +185,7 @@ func TestEnsureRepoUpdateRemoteURL(t *testing.T) {
 }
 
 func TestCommitAndPushNoChanges(t *testing.T) {
+	setupTestGitIdentity(t)
 	svc := New()
 	if err := svc.CheckGitInstalled(); err != nil {
 		t.Skip("Git not installed on system, skipping")
@@ -188,6 +204,7 @@ func TestCommitAndPushNoChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureRepo failed: %v", err)
 	}
+	setupTestGitIdentity(t, clientRepo)
 
 	// Create and commit first file so branch exists
 	testFile := filepath.Join(clientRepo, "init.txt")
