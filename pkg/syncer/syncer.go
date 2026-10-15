@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/user/dotsaver/pkg/git"
@@ -57,11 +59,13 @@ func resolveAlias(target manifest.Target, progName string) string {
 	if target.Alias != "" {
 		return target.Alias
 	}
-	clean := filepath.Base(filepath.Clean(target.Path))
-	if clean == "." || clean == "/" || clean == "\\" || clean == "" {
+	clean := strings.ReplaceAll(target.Path, "\\", "/")
+	clean = path.Clean(clean)
+	alias := path.Base(clean)
+	if alias == "." || alias == "/" || alias == "\\" || alias == "" {
 		return progName
 	}
-	return clean
+	return alias
 }
 
 // Save copies local files/directories matching the current OS into the repository cache and updates dotsaver.json.
@@ -71,6 +75,7 @@ func (s *Syncer) Save(repoPath string, m *manifest.Manifest, currentOS string) (
 		return nil, errors.New("manifest cannot be nil")
 	}
 
+	currentOS = strings.ToLower(strings.TrimSpace(currentOS))
 	rep := &SaveReport{
 		Saved:    []string{},
 		Warnings: []string{},
@@ -123,6 +128,7 @@ func (s *Syncer) DetectConflicts(repoPath string, m *manifest.Manifest, currentO
 		return conflicts, nil
 	}
 
+	currentOS = strings.ToLower(strings.TrimSpace(currentOS))
 	targetsByProg := m.TargetsForOS(currentOS)
 	for _, prog := range m.Programs {
 		targets, ok := targetsByProg[prog.Name]
@@ -169,8 +175,8 @@ func createBackup(localPath string) (string, error) {
 		timestamp := time.Now().Format("20060102150405")
 		bakPath = fmt.Sprintf("%s.bak.%s", localPath, timestamp)
 		counter := 1
-		for {
-			if _, err := os.Stat(bakPath); os.IsNotExist(err) {
+		for counter < 1000 {
+			if _, err := os.Stat(bakPath); err != nil {
 				break
 			}
 			bakPath = fmt.Sprintf("%s.bak.%s_%d", localPath, timestamp, counter)
@@ -189,6 +195,7 @@ func (s *Syncer) Sync(repoPath string, m *manifest.Manifest, currentOS string, a
 		return nil, errors.New("manifest cannot be nil")
 	}
 
+	currentOS = strings.ToLower(strings.TrimSpace(currentOS))
 	rep := &SyncReport{
 		Updated:   []string{},
 		BackedUp:  []string{},
@@ -206,8 +213,12 @@ func (s *Syncer) Sync(repoPath string, m *manifest.Manifest, currentOS string, a
 		for _, target := range targets {
 			alias := resolveAlias(target, prog.Name)
 			repoEntry := s.RepoTargetDir(repoPath, prog.Name, currentOS, alias)
-			if _, err := os.Stat(repoEntry); os.IsNotExist(err) {
-				rep.Warnings = append(rep.Warnings, fmt.Sprintf("%s: not found in repository cache (%s)", prog.Name, repoEntry))
+			if _, err := os.Stat(repoEntry); err != nil {
+				if os.IsNotExist(err) {
+					rep.Warnings = append(rep.Warnings, fmt.Sprintf("%s: not found in repository cache (%s)", prog.Name, repoEntry))
+				} else {
+					rep.Warnings = append(rep.Warnings, fmt.Sprintf("%s: cannot access repository cache (%s): %v", prog.Name, repoEntry, err))
+				}
 				continue
 			}
 

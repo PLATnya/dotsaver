@@ -459,4 +459,63 @@ func TestSyncerSyncMissingRepoEntry(t *testing.T) {
 	if !strings.Contains(rep.Warnings[0], "not found in repository cache") {
 		t.Errorf("Expected warning 'not found in repository cache', got: %s", rep.Warnings[0])
 	}
+
+	// Verify local file was NOT backed up or deleted
+	if _, err := os.Stat(targetFile + ".bak"); err == nil {
+		t.Errorf("Local file was prematurely backed up when repoEntry was missing!")
+	}
+	if _, err := os.Stat(targetFile); err != nil {
+		t.Errorf("Local file was removed or lost when repoEntry was missing!")
+	}
 }
+
+func TestSyncerResolveAliasBackslashes(t *testing.T) {
+	alias1 := resolveAlias(manifest.Target{Path: `C:\Users\tester\AppData\Roaming\app\settings.json`}, "app")
+	if alias1 != "settings.json" {
+		t.Errorf("Expected 'settings.json', got '%s'", alias1)
+	}
+
+	alias2 := resolveAlias(manifest.Target{Path: `/home/user/.config/app/settings.json`}, "app")
+	if alias2 != "settings.json" {
+		t.Errorf("Expected 'settings.json', got '%s'", alias2)
+	}
+
+	aliasExplicit := resolveAlias(manifest.Target{Path: `/path/to/file`, Alias: "custom_alias"}, "app")
+	if aliasExplicit != "custom_alias" {
+		t.Errorf("Expected 'custom_alias', got '%s'", aliasExplicit)
+	}
+}
+
+func TestSyncerCurrentOSCaseInsensitive(t *testing.T) {
+	tempDir := t.TempDir()
+	repoDir := filepath.Join(tempDir, "repo")
+	localFile := filepath.Join(tempDir, "test.conf")
+	_ = os.WriteFile(localFile, []byte("data"), 0644)
+
+	m := manifest.New()
+	_, _ = m.AddProgram("mytool")
+	_ = m.AddTarget("mytool", manifest.Target{
+		OS:   "windows",
+		Path: localFile,
+	})
+
+	syncer := NewSyncer(nil)
+	rep, err := syncer.Save(repoDir, m, " WiNdOwS ")
+	if err != nil || len(rep.Saved) != 1 {
+		t.Fatalf("Save with mixed case OS failed: %v, saved: %v", err, rep.Saved)
+	}
+
+	conflicts, err := syncer.DetectConflicts(repoDir, m, "WINDOWS")
+	if err != nil || len(conflicts) != 0 {
+		t.Fatalf("DetectConflicts with uppercase OS failed: %v, conflicts: %v", err, conflicts)
+	}
+
+	syncRep, err := syncer.Sync(repoDir, m, "Windows", true)
+	if err != nil {
+		t.Fatalf("Sync with Title case OS failed: %v", err)
+	}
+	if len(syncRep.Warnings) != 0 {
+		t.Errorf("Unexpected warnings: %v", syncRep.Warnings)
+	}
+}
+
