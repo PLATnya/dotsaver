@@ -77,6 +77,7 @@ func Load(path string) (*Config, error) {
 }
 
 // Save writes the Config as formatted JSON to the given path, creating parent directories if needed.
+// It writes to a temporary file in the destination directory first and performs an atomic rename.
 func (c *Config) Save(path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -87,5 +88,21 @@ func (c *Config) Save(path string) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0644)
+
+	tmpFile, err := os.CreateTemp(dir, "config-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmpFile.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tmpName, path)
 }

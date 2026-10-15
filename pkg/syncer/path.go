@@ -1,6 +1,7 @@
 package syncer
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,7 +12,7 @@ var winEnvRegex = regexp.MustCompile(`%([a-zA-Z0-9_]+)%`)
 
 // ExpandPath expands user home (~), Windows %VAR%, and Unix $VAR / ${VAR}
 // environment variables in a file path, returning a clean platform-specific path.
-// Unset Windows variables are preserved safely, and unset Unix variables expand to empty.
+// If an unset environment variable causes the path to evaluate to empty or ".", an error is returned.
 func ExpandPath(rawPath string) (string, error) {
 	rawPath = strings.TrimSpace(rawPath)
 	if rawPath == "" {
@@ -21,11 +22,7 @@ func ExpandPath(rawPath string) (string, error) {
 	// Expand Windows %VAR% syntax
 	expanded := winEnvRegex.ReplaceAllStringFunc(rawPath, func(match string) string {
 		varName := match[1 : len(match)-1]
-		val := os.Getenv(varName)
-		if val != "" {
-			return val
-		}
-		return match
+		return os.Getenv(varName)
 	})
 
 	// Expand Unix $VAR and ${VAR}
@@ -44,5 +41,10 @@ func ExpandPath(rawPath string) (string, error) {
 		}
 	}
 
-	return filepath.Clean(expanded), nil
+	cleaned := filepath.Clean(expanded)
+	if (cleaned == "." || strings.TrimSpace(expanded) == "") && rawPath != "." && rawPath != "./" && rawPath != ".\\" {
+		return "", fmt.Errorf("path %q evaluated to empty or working directory due to unset environment variable", rawPath)
+	}
+
+	return cleaned, nil
 }

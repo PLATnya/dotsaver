@@ -74,6 +74,7 @@ func Load(repoPath string) (*Manifest, error) {
 }
 
 // Save writes the Manifest to dotsaver.json within repoPath, creating directories if needed.
+// It writes to a temporary file in repoPath first and atomically renames it.
 func (m *Manifest) Save(repoPath string) error {
 	if err := os.MkdirAll(repoPath, 0755); err != nil {
 		return err
@@ -88,7 +89,23 @@ func (m *Manifest) Save(repoPath string) error {
 	}
 	data = append(data, '\n')
 
-	return os.WriteFile(filepath.Join(repoPath, ManifestFilename), data, 0644)
+	targetFile := filepath.Join(repoPath, ManifestFilename)
+	tmpFile, err := os.CreateTemp(repoPath, "manifest-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmpFile.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tmpName, targetFile)
 }
 
 // FindProgram searches for a program by name (case-insensitive) and returns a pointer to it, or nil.
@@ -126,7 +143,9 @@ func (m *Manifest) RemoveProgram(name string) bool {
 	trimmed := strings.TrimSpace(name)
 	for i, prog := range m.Programs {
 		if strings.EqualFold(prog.Name, trimmed) {
-			m.Programs = append(m.Programs[:i], m.Programs[i+1:]...)
+			copy(m.Programs[i:], m.Programs[i+1:])
+			clear(m.Programs[len(m.Programs)-1:])
+			m.Programs = m.Programs[:len(m.Programs)-1]
 			return true
 		}
 	}
@@ -185,7 +204,9 @@ func (m *Manifest) RemoveTarget(progName, osName, targetPath string) bool {
 
 	for i, target := range prog.Targets {
 		if target.OS == osName && target.Path == targetPath {
-			prog.Targets = append(prog.Targets[:i], prog.Targets[i+1:]...)
+			copy(prog.Targets[i:], prog.Targets[i+1:])
+			clear(prog.Targets[len(prog.Targets)-1:])
+			prog.Targets = prog.Targets[:len(prog.Targets)-1]
 			return true
 		}
 	}

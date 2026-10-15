@@ -164,15 +164,22 @@ func TestEnsureRepoUpdateRemoteURL(t *testing.T) {
 	remote1 := "https://example.com/repo1.git"
 	remote2 := "https://example.com/repo2.git"
 
-	err := svc.EnsureRepo(remote1, repoPath)
+	// Initialize local repo first
+	err := svc.EnsureRepo("", repoPath)
 	if err != nil {
-		t.Fatalf("EnsureRepo failed: %v", err)
+		t.Fatalf("EnsureRepo local init failed: %v", err)
 	}
 
-	// Change remote
+	// Set remote origin
+	err = svc.EnsureRepo(remote1, repoPath)
+	if err != nil {
+		t.Fatalf("EnsureRepo set remote1 failed: %v", err)
+	}
+
+	// Change remote origin
 	err = svc.EnsureRepo(remote2, repoPath)
 	if err != nil {
-		t.Fatalf("EnsureRepo with new remote failed: %v", err)
+		t.Fatalf("EnsureRepo update to remote2 failed: %v", err)
 	}
 
 	out, err := runCmd(repoPath, "remote", "get-url", "origin")
@@ -181,6 +188,25 @@ func TestEnsureRepoUpdateRemoteURL(t *testing.T) {
 	}
 	if strings.TrimSpace(out) != remote2 {
 		t.Errorf("Expected remote origin %q, got %q", remote2, out)
+	}
+}
+
+func TestEnsureRepoCloneFailure(t *testing.T) {
+	svc := New()
+	if err := svc.CheckGitInstalled(); err != nil {
+		t.Skip("Git not installed on system, skipping")
+	}
+
+	tempDir := t.TempDir()
+	repoPath := filepath.Join(tempDir, "repo")
+	invalidRemote := "https://example.com/nonexistent-dotsaver-repo-xyz.git"
+
+	err := svc.EnsureRepo(invalidRemote, repoPath)
+	if err == nil {
+		t.Fatal("Expected EnsureRepo to fail on invalid remote clone, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to clone remote repository") {
+		t.Errorf("Expected error message to mention clone failure, got: %v", err)
 	}
 }
 

@@ -95,7 +95,8 @@ func (s *Syncer) Save(repoPath string, m *manifest.Manifest, currentOS string) (
 				continue
 			}
 
-			if _, err := os.Stat(expanded); err != nil {
+			srcStat, err := os.Stat(expanded)
+			if err != nil {
 				if os.IsNotExist(err) {
 					rep.Warnings = append(rep.Warnings, fmt.Sprintf("%s: path does not exist: %s", prog.Name, expanded))
 				} else {
@@ -106,6 +107,9 @@ func (s *Syncer) Save(repoPath string, m *manifest.Manifest, currentOS string) (
 
 			alias := resolveAlias(target, prog.Name)
 			dstRepoPath := s.RepoTargetDir(repoPath, prog.Name, currentOS, alias)
+			if srcStat.IsDir() {
+				_ = os.RemoveAll(dstRepoPath)
+			}
 			if err := CopyEntry(expanded, dstRepoPath); err != nil {
 				rep.Warnings = append(rep.Warnings, fmt.Sprintf("%s: failed to copy %s: %v", prog.Name, expanded, err))
 				continue

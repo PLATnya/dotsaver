@@ -115,7 +115,7 @@ var (
 				Bold(true)
 
 	StatusInfoStyle = lipgloss.NewStyle().
-				Foreground(SecondaryColor)
+			Foreground(SecondaryColor)
 )
 
 // Help & Key Hint Styles

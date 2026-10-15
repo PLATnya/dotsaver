@@ -48,6 +48,17 @@ func TestRunInvalidFlag(t *testing.T) {
 	}
 }
 
+func TestRunPositionalArgsRejected(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"extra-arg"}, &stdout, &stderr, defaultAppConfig())
+	if code != 2 {
+		t.Fatalf("Expected exit code 2 for positional arguments, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "unexpected positional argument") {
+		t.Errorf("Expected stderr to mention unexpected positional argument, got: %s", stderr.String())
+	}
+}
+
 func TestRunGitMissing(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	mockCfg := appConfig{

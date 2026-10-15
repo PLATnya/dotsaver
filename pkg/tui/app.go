@@ -62,6 +62,7 @@ type syncConflictsMsg struct {
 type saveSettingsDoneMsg struct {
 	remoteURL string
 	repoPath  string
+	saved     bool
 	err       error
 }
 
@@ -219,15 +220,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			updatedCount := 0
 			backedUpCount := 0
 			conflictCount := 0
+			warnCount := 0
 			if msg.report != nil {
 				updatedCount = len(msg.report.Updated)
 				backedUpCount = len(msg.report.BackedUp)
 				conflictCount = len(msg.report.Conflicts)
+				warnCount = len(msg.report.Warnings)
 			}
 			if conflictCount > 0 {
 				m.statusMsg = fmt.Sprintf("Sync complete: %d restored, %d conflict(s) skipped.", updatedCount, conflictCount)
 			} else {
 				m.statusMsg = fmt.Sprintf("Sync complete: %d restored, %d backed up (.bak).", updatedCount, backedUpCount)
+			}
+			if warnCount > 0 {
+				m.statusMsg += fmt.Sprintf(" (%d warning(s))", warnCount)
 			}
 			m.statusIsErr = false
 		}
@@ -235,17 +241,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case saveSettingsDoneMsg:
 		m.activeModal = ModalNone
-		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("Settings saved, but repo setup had notice: %v", msg.err)
-			m.statusIsErr = true
-		} else {
+		if msg.saved {
 			m.cfg.RemoteURL = msg.remoteURL
 			m.cfg.RepoPath = msg.repoPath
-			m.statusMsg = "Settings saved & repository cache initialized successfully."
-			m.statusIsErr = false
 			if loadedMan, err := manifest.Load(m.cfg.RepoPath); err == nil {
 				m.manifest = loadedMan
 			}
+		}
+		if msg.err != nil {
+			if msg.saved {
+				m.statusMsg = fmt.Sprintf("Settings saved, but repo setup had notice: %v", msg.err)
+			} else {
+				m.statusMsg = fmt.Sprintf("Failed to save settings: %v", msg.err)
+			}
+			m.statusIsErr = true
+		} else {
+			m.statusMsg = "Settings saved & repository cache initialized successfully."
+			m.statusIsErr = false
 		}
 		return m, m.refreshGitStatusCmd()
 
@@ -514,9 +526,13 @@ func (m *Model) triggerSync() tea.Cmd {
 	m.activeModal = ModalBusy
 	m.spinnerText = "Pulling from remote & checking dotfiles..."
 	workerCmd := func() tea.Msg {
-		_ = m.gitSvc.EnsureRepo(m.cfg.RemoteURL, m.cfg.RepoPath)
+		if err := m.gitSvc.EnsureRepo(m.cfg.RemoteURL, m.cfg.RepoPath); err != nil {
+			return syncDoneMsg{err: fmt.Errorf("git repo setup failed: %w", err)}
+		}
 		if m.cfg.RemoteURL != "" {
-			_, _ = m.gitSvc.Pull(m.cfg.RepoPath)
+			if _, err := m.gitSvc.Pull(m.cfg.RepoPath); err != nil {
+				return syncDoneMsg{err: fmt.Errorf("git pull failed: %w", err)}
+			}
 		}
 		loadedMan, err := manifest.Load(m.cfg.RepoPath)
 		if err != nil {
@@ -571,13 +587,14 @@ func (m *Model) triggerSaveSettings() tea.Cmd {
 
 	workerCmd := func() tea.Msg {
 		if err := cfgCopy.Save(cfgPath); err != nil {
-			return saveSettingsDoneMsg{err: fmt.Errorf("failed to save config: %w", err)}
+			return saveSettingsDoneMsg{err: fmt.Errorf("failed to save config: %w", err), saved: false}
 		}
 
 		err := m.gitSvc.EnsureRepo(cfgCopy.RemoteURL, cfgCopy.RepoPath)
 		return saveSettingsDoneMsg{
 			remoteURL: remoteURL,
 			repoPath:  repoPath,
+			saved:     true,
 			err:       err,
 		}
 	}

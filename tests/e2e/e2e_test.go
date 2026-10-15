@@ -435,4 +435,3 @@ func TestCLIBinaryBuildAndRun(t *testing.T) {
 		t.Errorf("Expected error exit for invalid flag, got success")
 	}
 }
-

@@ -86,6 +86,32 @@ func TestExpandPathUnsetEnvSafe(t *testing.T) {
 	}
 }
 
+func TestExpandPathUnsetEnvReturnsError(t *testing.T) {
+	unsetVars := []string{
+		"$UNSET_VAR_DOTSAVER",
+		"${UNSET_VAR_DOTSAVER}",
+		"%UNSET_VAR_DOTSAVER%",
+	}
+	for _, raw := range unsetVars {
+		expanded, err := ExpandPath(raw)
+		if err == nil {
+			t.Errorf("Expected error for unset env path %q, got: %q", raw, expanded)
+		}
+		if expanded != "" {
+			t.Errorf("Expected empty string on error, got: %q", expanded)
+		}
+	}
+
+	// Explicit dot path should NOT return an error
+	expandedDot, err := ExpandPath(".")
+	if err != nil {
+		t.Fatalf("ExpandPath('.') returned unexpected error: %v", err)
+	}
+	if expandedDot != "." {
+		t.Errorf("Expected '.', got: %q", expandedDot)
+	}
+}
+
 func TestExpandPathEmpty(t *testing.T) {
 	expanded, err := ExpandPath("")
 	if err != nil {

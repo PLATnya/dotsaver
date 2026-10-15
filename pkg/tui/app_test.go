@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -302,11 +303,61 @@ func TestTUIAsyncMessages(t *testing.T) {
 		t.Errorf("Unexpected statusMsg: %s", m.statusMsg)
 	}
 
-	// saveSettingsDoneMsg
-	res, _ = m.Update(saveSettingsDoneMsg{err: nil})
+	// syncDoneMsg with warnings
+	res, _ = m.Update(syncDoneMsg{
+		report: &syncer.SyncReport{
+			Updated:  []string{"~/.config/nvim"},
+			BackedUp: []string{"~/.config/nvim.bak"},
+			Warnings: []string{"file missing: /path/to/missing"},
+		},
+		manifest: manifest.New(),
+		err:      nil,
+	})
+	m = res.(*Model)
+	if !strings.Contains(m.statusMsg, "1 warning(s)") {
+		t.Errorf("Expected statusMsg to contain warning count, got: %s", m.statusMsg)
+	}
+
+	// syncDoneMsg with error (e.g. git pull failure)
+	res, _ = m.Update(syncDoneMsg{
+		err: fmt.Errorf("git pull failed: exit status 1"),
+	})
+	m = res.(*Model)
+	if !m.statusIsErr || !strings.Contains(m.statusMsg, "git pull failed") {
+		t.Errorf("Expected sync failure error in statusMsg, got: %s", m.statusMsg)
+	}
+
+	// saveSettingsDoneMsg with success
+	res, _ = m.Update(saveSettingsDoneMsg{
+		remoteURL: "https://example.com/dots.git",
+		repoPath:  filepath.Join(tempDir, "newrepo"),
+		saved:     true,
+		err:       nil,
+	})
 	m = res.(*Model)
 	if !strings.Contains(m.statusMsg, "Settings saved") {
 		t.Errorf("Unexpected statusMsg: %s", m.statusMsg)
+	}
+	if m.cfg.RemoteURL != "https://example.com/dots.git" {
+		t.Errorf("Expected RemoteURL to be updated in memory, got: %s", m.cfg.RemoteURL)
+	}
+
+	// saveSettingsDoneMsg with EnsureRepo error: in-memory cfg should still be updated if saved=true
+	res, _ = m.Update(saveSettingsDoneMsg{
+		remoteURL: "https://example.com/updated.git",
+		repoPath:  filepath.Join(tempDir, "updatedrepo"),
+		saved:     true,
+		err:       fmt.Errorf("EnsureRepo failed to connect"),
+	})
+	m = res.(*Model)
+	if !m.statusIsErr || !strings.Contains(m.statusMsg, "Settings saved, but repo setup had notice") {
+		t.Errorf("Expected notice in statusMsg, got: %s", m.statusMsg)
+	}
+	if m.cfg.RemoteURL != "https://example.com/updated.git" {
+		t.Errorf("Expected in-memory RemoteURL to match saved config despite EnsureRepo failure, got: %s", m.cfg.RemoteURL)
+	}
+	if m.cfg.RepoPath != filepath.Join(tempDir, "updatedrepo") {
+		t.Errorf("Expected in-memory RepoPath to match saved config, got: %s", m.cfg.RepoPath)
 	}
 }
 

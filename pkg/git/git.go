@@ -66,8 +66,10 @@ func (g *GitService) EnsureRepo(remoteURL, repoPath string) error {
 			if err == nil {
 				return nil
 			}
-			// If clone failed because remote is empty or brand new, init locally
-			_ = out
+			// Only allow fallback to local init if the remote was genuinely an empty repository
+			if !strings.Contains(out, "warning: You appear to have cloned an empty repository") {
+				return fmt.Errorf("failed to clone remote repository %q: %w", remoteURL, err)
+			}
 		}
 
 		if _, err := runCmd(repoPath, "init", "-b", "main"); err != nil {

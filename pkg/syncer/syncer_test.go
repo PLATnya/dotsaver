@@ -519,3 +519,58 @@ func TestSyncerCurrentOSCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestSyncerDirectorySavePrunesDeletedFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	repoDir := filepath.Join(tempDir, "repo")
+	localDir := filepath.Join(tempDir, "nvim_config")
+	_ = os.MkdirAll(localDir, 0755)
+
+	file1 := filepath.Join(localDir, "init.lua")
+	file2 := filepath.Join(localDir, "ghost.lua")
+	_ = os.WriteFile(file1, []byte("vim.opt.number = true"), 0644)
+	_ = os.WriteFile(file2, []byte("-- old ghost file"), 0644)
+
+	m := manifest.New()
+	_, _ = m.AddProgram("nvim")
+	_ = m.AddTarget("nvim", manifest.Target{
+		OS:   "windows",
+		Path: localDir,
+	})
+
+	syncer := NewSyncer(nil)
+	rep, err := syncer.Save(repoDir, m, "windows")
+	if err != nil {
+		t.Fatalf("First Save failed: %v", err)
+	}
+	if len(rep.Saved) != 1 {
+		t.Fatalf("Expected 1 saved target, got %d", len(rep.Saved))
+	}
+
+	repoCachedGhost := filepath.Join(repoDir, "data", "nvim", "windows", "nvim_config", "ghost.lua")
+	if _, err := os.Stat(repoCachedGhost); err != nil {
+		t.Fatalf("Expected ghost.lua in repo cache before deletion: %v", err)
+	}
+
+	// Delete file2 locally
+	_ = os.Remove(file2)
+
+	// Save again
+	rep2, err := syncer.Save(repoDir, m, "windows")
+	if err != nil {
+		t.Fatalf("Second Save failed: %v", err)
+	}
+	if len(rep2.Saved) != 1 {
+		t.Fatalf("Expected 1 saved target, got %d", len(rep2.Saved))
+	}
+
+	// Verify ghost.lua is pruned from repo cache!
+	if _, err := os.Stat(repoCachedGhost); !os.IsNotExist(err) {
+		t.Errorf("Expected ghost.lua to be pruned from repo cache, but it still exists")
+	}
+
+	// Verify init.lua is still present
+	repoCachedInit := filepath.Join(repoDir, "data", "nvim", "windows", "nvim_config", "init.lua")
+	if _, err := os.Stat(repoCachedInit); err != nil {
+		t.Errorf("Expected init.lua to remain in repo cache: %v", err)
+	}
+}

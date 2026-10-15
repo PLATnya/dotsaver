@@ -87,6 +87,12 @@ Flags:
 		return 0
 	}
 
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "Error: unexpected positional argument(s): %v\n", fs.Args())
+		printHelp()
+		return 2
+	}
+
 	// Pre-flight check: Verify git is installed and in PATH
 	if err := appCfg.checkGit(); err != nil {
 		fmt.Fprintln(stderr, "Error: 'git' executable not found in PATH.")
