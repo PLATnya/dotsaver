@@ -216,15 +216,17 @@ func TestTUIModals(t *testing.T) {
 		t.Errorf("Expected conflict file path in view, got: %s", view)
 	}
 
-	// Esc dismisses conflict modal
-	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	// Esc triggers sync without backup (skips conflicts) and enters ModalBusy
+	res, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
 	m = res.(*Model)
-	if m.activeModal != ModalNone {
-		t.Errorf("Expected activeModal ModalNone after Esc, got %v", m.activeModal)
+	if m.activeModal != ModalBusy {
+		t.Errorf("Expected activeModal ModalBusy after Esc, got %v", m.activeModal)
+	}
+	if cmd == nil {
+		t.Fatal("Expected cmd from triggerSyncWithoutBackup")
 	}
 
 	// 2. Busy Modal
-	m.activeModal = ModalBusy
 	m.spinnerText = "Synchronizing files..."
 
 	busyView := m.View()
@@ -233,6 +235,26 @@ func TestTUIModals(t *testing.T) {
 	}
 	if !strings.Contains(busyView, "Synchronizing files...") {
 		t.Errorf("Expected spinnerText in busy view, got: %s", busyView)
+	}
+}
+
+func TestTUIDashboardAddKey(t *testing.T) {
+	tempDir := t.TempDir()
+	cfgPath := filepath.Join(tempDir, "config.json")
+
+	m, err := NewModel(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize model: %v", err)
+	}
+
+	// Press 'a' on Dashboard -> switches to TabPrograms and starts AddProgram
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = res.(*Model)
+	if m.activeTab != TabPrograms {
+		t.Errorf("Expected activeTab TabPrograms, got %v", m.activeTab)
+	}
+	if !m.programsView.AddingProgram {
+		t.Error("Expected AddingProgram to be true")
 	}
 }
 

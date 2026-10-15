@@ -47,9 +47,9 @@ var (
 
 // RenderConflictModal renders a review dialog displaying all detected file conflicts.
 func RenderConflictModal(conflicts []syncer.ConflictItem, width, height int) string {
-	boxWidth := width - 10
-	if boxWidth < 50 {
-		boxWidth = 60
+	boxWidth := width - 6
+	if boxWidth < 30 {
+		boxWidth = 30
 	}
 	if boxWidth > 90 {
 		boxWidth = 90
@@ -83,8 +83,11 @@ func RenderConflictModal(conflicts []syncer.ConflictItem, width, height int) str
 // RenderBusyModal renders a clean overlay spinner with the provided operation description.
 func RenderBusyModal(spinnerText string, spinnerView string, width, height int) string {
 	boxWidth := 50
-	if boxWidth > width-4 {
+	if width > 0 && boxWidth > width-4 {
 		boxWidth = width - 4
+	}
+	if boxWidth < 24 {
+		boxWidth = 24
 	}
 
 	content := strings.Join([]string{

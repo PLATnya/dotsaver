@@ -60,7 +60,9 @@ type syncConflictsMsg struct {
 }
 
 type saveSettingsDoneMsg struct {
-	err error
+	remoteURL string
+	repoPath  string
+	err       error
 }
 
 // Model is the root Bubble Tea application model.
@@ -216,11 +218,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			updatedCount := 0
 			backedUpCount := 0
+			conflictCount := 0
 			if msg.report != nil {
 				updatedCount = len(msg.report.Updated)
 				backedUpCount = len(msg.report.BackedUp)
+				conflictCount = len(msg.report.Conflicts)
 			}
-			m.statusMsg = fmt.Sprintf("Sync complete: %d restored, %d backed up (.bak).", updatedCount, backedUpCount)
+			if conflictCount > 0 {
+				m.statusMsg = fmt.Sprintf("Sync complete: %d restored, %d conflict(s) skipped.", updatedCount, conflictCount)
+			} else {
+				m.statusMsg = fmt.Sprintf("Sync complete: %d restored, %d backed up (.bak).", updatedCount, backedUpCount)
+			}
 			m.statusIsErr = false
 		}
 		return m, m.refreshGitStatusCmd()
@@ -231,6 +239,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Settings saved, but repo setup had notice: %v", msg.err)
 			m.statusIsErr = true
 		} else {
+			m.cfg.RemoteURL = msg.remoteURL
+			m.cfg.RepoPath = msg.repoPath
 			m.statusMsg = "Settings saved & repository cache initialized successfully."
 			m.statusIsErr = false
 			if loadedMan, err := manifest.Load(m.cfg.RepoPath); err == nil {
@@ -265,10 +275,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m, m.triggerSyncWithBackup()
 		case "esc":
-			m.activeModal = ModalNone
-			m.statusMsg = "Sync skipped conflicting files."
-			m.statusIsErr = false
-			return m, nil
+			return m, m.triggerSyncWithoutBackup()
 		default:
 			return m, nil
 		}
@@ -299,6 +306,10 @@ func (m *Model) handleDashboardKey(key string) (tea.Model, tea.Cmd) {
 		m.activeTab = TabSettings
 	case "tab":
 		m.activeTab = TabPrograms
+	case "a":
+		m.activeTab = TabPrograms
+		m.programsView.StartAddProgram()
+		return m, nil
 	case "s":
 		return m, m.triggerSave()
 	case "y":
@@ -479,7 +490,7 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) triggerSave() tea.Cmd {
 	m.activeModal = ModalBusy
 	m.spinnerText = "Saving dotfiles to repository cache & pushing..."
-	return func() tea.Msg {
+	workerCmd := func() tea.Msg {
 		_ = m.gitSvc.EnsureRepo(m.cfg.RemoteURL, m.cfg.RepoPath)
 		rep, err := m.syncer.Save(m.cfg.RepoPath, m.manifest, m.currentOS)
 		if err != nil {
@@ -496,12 +507,13 @@ func (m *Model) triggerSave() tea.Cmd {
 		}
 		return saveDoneMsg{report: rep, pushOut: pushOut, err: pushErr}
 	}
+	return tea.Batch(m.spinner.Tick, workerCmd)
 }
 
 func (m *Model) triggerSync() tea.Cmd {
 	m.activeModal = ModalBusy
 	m.spinnerText = "Pulling from remote & checking dotfiles..."
-	return func() tea.Msg {
+	workerCmd := func() tea.Msg {
 		_ = m.gitSvc.EnsureRepo(m.cfg.RemoteURL, m.cfg.RepoPath)
 		if m.cfg.RemoteURL != "" {
 			_, _ = m.gitSvc.Pull(m.cfg.RepoPath)
@@ -522,15 +534,27 @@ func (m *Model) triggerSync() tea.Cmd {
 		rep, err := m.syncer.Sync(m.cfg.RepoPath, loadedMan, m.currentOS, false)
 		return syncDoneMsg{report: rep, manifest: loadedMan, err: err}
 	}
+	return tea.Batch(m.spinner.Tick, workerCmd)
 }
 
 func (m *Model) triggerSyncWithBackup() tea.Cmd {
 	m.activeModal = ModalBusy
 	m.spinnerText = "Synchronizing dotfiles and backing up conflicts to .bak..."
-	return func() tea.Msg {
+	workerCmd := func() tea.Msg {
 		rep, err := m.syncer.Sync(m.cfg.RepoPath, m.manifest, m.currentOS, true)
 		return syncDoneMsg{report: rep, manifest: m.manifest, err: err}
 	}
+	return tea.Batch(m.spinner.Tick, workerCmd)
+}
+
+func (m *Model) triggerSyncWithoutBackup() tea.Cmd {
+	m.activeModal = ModalBusy
+	m.spinnerText = "Synchronizing non-conflicting dotfiles (skipping conflicts)..."
+	workerCmd := func() tea.Msg {
+		rep, err := m.syncer.Sync(m.cfg.RepoPath, m.manifest, m.currentOS, false)
+		return syncDoneMsg{report: rep, manifest: m.manifest, err: err}
+	}
+	return tea.Batch(m.spinner.Tick, workerCmd)
 }
 
 func (m *Model) triggerSaveSettings() tea.Cmd {
@@ -539,16 +563,25 @@ func (m *Model) triggerSaveSettings() tea.Cmd {
 	remoteURL := strings.TrimSpace(m.settingsView.RemoteURLInput.Value())
 	repoPath := strings.TrimSpace(m.settingsView.RepoPathInput.Value())
 
-	return func() tea.Msg {
-		m.cfg.RemoteURL = remoteURL
-		m.cfg.RepoPath = repoPath
-		if err := m.cfg.Save(m.cfgPath); err != nil {
+	// Copy config to avoid data race with concurrent View() calls
+	cfgCopy := *m.cfg
+	cfgCopy.RemoteURL = remoteURL
+	cfgCopy.RepoPath = repoPath
+	cfgPath := m.cfgPath
+
+	workerCmd := func() tea.Msg {
+		if err := cfgCopy.Save(cfgPath); err != nil {
 			return saveSettingsDoneMsg{err: fmt.Errorf("failed to save config: %w", err)}
 		}
 
-		err := m.gitSvc.EnsureRepo(m.cfg.RemoteURL, m.cfg.RepoPath)
-		return saveSettingsDoneMsg{err: err}
+		err := m.gitSvc.EnsureRepo(cfgCopy.RemoteURL, cfgCopy.RepoPath)
+		return saveSettingsDoneMsg{
+			remoteURL: remoteURL,
+			repoPath:  repoPath,
+			err:       err,
+		}
 	}
+	return tea.Batch(m.spinner.Tick, workerCmd)
 }
 
 func (m *Model) refreshGitStatusCmd() tea.Cmd {
