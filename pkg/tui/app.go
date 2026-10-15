@@ -316,6 +316,7 @@ func (m *Model) handleDashboardKey(key string) (tea.Model, tea.Cmd) {
 		m.activeTab = TabPrograms
 	case "3":
 		m.activeTab = TabSettings
+		m.settingsView.SetMode(views.SettingsModeSelect)
 	case "tab":
 		m.activeTab = TabPrograms
 	case "a":
@@ -423,6 +424,7 @@ func (m *Model) handleProgramsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.activeTab = TabPrograms
 	case "3":
 		m.activeTab = TabSettings
+		m.settingsView.SetMode(views.SettingsModeSelect)
 	case "tab":
 		m.programsView.TogglePane()
 	case "up", "k":
@@ -470,17 +472,58 @@ func (m *Model) handleProgramsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// 1. If in Input Mode
+	if m.settingsView.Mode == views.SettingsModeInput {
+		// Exit Input Mode: Alt+i or Esc
+		if key == "alt+i" || (msg.Alt && string(msg.Runes) == "i") || key == "esc" {
+			m.settingsView.SetMode(views.SettingsModeSelect)
+			return m, nil
+		}
+
+		switch key {
+		case "tab", "down":
+			m.settingsView.NextFocus()
+			return m, nil
+		case "shift+tab", "up":
+			m.settingsView.PrevFocus()
+			return m, nil
+		case "enter":
+			return m, m.triggerSaveSettings()
+		default:
+			var cmd tea.Cmd
+			if m.settingsView.FocusIndex == 0 {
+				m.settingsView.RemoteURLInput, cmd = m.settingsView.RemoteURLInput.Update(msg)
+			} else {
+				m.settingsView.RepoPathInput, cmd = m.settingsView.RepoPathInput.Update(msg)
+			}
+			return m, cmd
+		}
+	}
+
+	// 2. In Select Mode
 	switch key {
-	case "ctrl+1":
+	case "i":
+		m.settingsView.SetMode(views.SettingsModeInput)
+		return m, nil
+	case "1":
 		m.activeTab = TabDashboard
 		return m, nil
-	case "ctrl+2":
+	case "2":
 		m.activeTab = TabPrograms
 		return m, nil
-	case "tab", "down":
+	case "3":
+		m.activeTab = TabSettings
+		return m, nil
+	case "tab":
+		m.activeTab = TabDashboard
+		return m, nil
+	case "shift+tab":
+		m.activeTab = TabPrograms
+		return m, nil
+	case "down", "j":
 		m.settingsView.NextFocus()
 		return m, nil
-	case "shift+tab", "up":
+	case "up", "k":
 		m.settingsView.PrevFocus()
 		return m, nil
 	case "enter":
@@ -488,14 +531,11 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.activeTab = TabDashboard
 		return m, nil
+	case "q":
+		return m, tea.Quit
 	default:
-		var cmd tea.Cmd
-		if m.settingsView.FocusIndex == 0 {
-			m.settingsView.RemoteURLInput, cmd = m.settingsView.RemoteURLInput.Update(msg)
-		} else {
-			m.settingsView.RepoPathInput, cmd = m.settingsView.RepoPathInput.Update(msg)
-		}
-		return m, cmd
+		// In Select Mode, text characters do not input to the input line
+		return m, nil
 	}
 }
 

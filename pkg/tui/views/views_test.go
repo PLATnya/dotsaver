@@ -81,13 +81,53 @@ func TestRenderPrograms(t *testing.T) {
 
 func TestRenderSettings(t *testing.T) {
 	sv := NewSettingsView("https://github.com/test/dots.git", "/cache/repo")
-	out := sv.Render(80)
 
+	// Default mode must be SettingsModeSelect
+	if sv.Mode != SettingsModeSelect {
+		t.Fatalf("Expected default mode SettingsModeSelect, got %v", sv.Mode)
+	}
+	if sv.RemoteURLInput.Focused() || sv.RepoPathInput.Focused() {
+		t.Errorf("Expected inputs to be blurred in SettingsModeSelect")
+	}
+
+	out := sv.Render(80)
 	if !strings.Contains(out, "dotsaver Configuration") {
 		t.Errorf("Expected 'dotsaver Configuration', got: %s", out)
 	}
 	if !strings.Contains(out, "https://github.com/test/dots.git") {
 		t.Errorf("Expected remote URL in settings output, got: %s", out)
+	}
+	if !strings.Contains(out, "SELECT MODE") {
+		t.Errorf("Expected 'SELECT MODE' badge in output, got: %s", out)
+	}
+	if !strings.Contains(out, "[i]") {
+		t.Errorf("Expected '[i]' key hint in output, got: %s", out)
+	}
+
+	// Switch to Input Mode
+	sv.SetMode(SettingsModeInput)
+	if sv.Mode != SettingsModeInput {
+		t.Fatalf("Expected mode SettingsModeInput after SetMode, got %v", sv.Mode)
+	}
+	if !sv.RemoteURLInput.Focused() {
+		t.Errorf("Expected RemoteURLInput to be focused in InputMode")
+	}
+
+	outInput := sv.Render(80)
+	if !strings.Contains(outInput, "INPUT MODE") {
+		t.Errorf("Expected 'INPUT MODE' badge in output, got: %s", outInput)
+	}
+	if !strings.Contains(outInput, "[Alt+i") {
+		t.Errorf("Expected '[Alt+i' key hint in output, got: %s", outInput)
+	}
+
+	// Switch back to Select Mode
+	sv.SetMode(SettingsModeSelect)
+	if sv.Mode != SettingsModeSelect {
+		t.Fatalf("Expected mode SettingsModeSelect after SetMode, got %v", sv.Mode)
+	}
+	if sv.RemoteURLInput.Focused() || sv.RepoPathInput.Focused() {
+		t.Errorf("Expected inputs to be blurred in SettingsModeSelect")
 	}
 }
 

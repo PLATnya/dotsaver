@@ -111,6 +111,15 @@ Flags:
 | `t` | Add target path (OS + local file/folder path) to selected program |
 | `d` | Delete selected program or target path |
 
+### Settings View
+| Key | Action |
+| --- | --- |
+| `i` | Activate **Input Mode** to edit input fields |
+| `Alt+i` / `Esc` | Return to **Select Mode** |
+| `↑` / `k`, `↓` / `j` | Select input line (Select Mode) / Navigate lines (Input Mode) |
+| `Tab` | Cycle tabs (Select Mode) / Next input line (Input Mode) |
+| `Enter` | Save settings & initialize repository cache |
+
 ---
 
 ## Configuration & Layout

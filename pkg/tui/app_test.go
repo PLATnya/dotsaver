@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/user/dotsaver/pkg/manifest"
 	"github.com/user/dotsaver/pkg/syncer"
+	"github.com/user/dotsaver/pkg/tui/views"
 )
 
 func TestTUIModelRender(t *testing.T) {
@@ -380,5 +381,132 @@ func TestTUIQuitCommands(t *testing.T) {
 	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
 		t.Error("Expected Quit cmd on 'ctrl+c'")
+	}
+}
+
+func TestTUISettingsModes(t *testing.T) {
+	tempDir := t.TempDir()
+	cfgPath := filepath.Join(tempDir, "config.json")
+
+	m, err := NewModel(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize model: %v", err)
+	}
+
+	// 1. Navigate to Settings Tab via '3'
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	m = res.(*Model)
+	if m.activeTab != TabSettings {
+		t.Fatalf("Expected activeTab TabSettings, got %v", m.activeTab)
+	}
+	if m.settingsView.Mode != views.SettingsModeSelect {
+		t.Fatalf("Expected initial mode SettingsModeSelect, got %v", m.settingsView.Mode)
+	}
+
+	// In Select Mode:
+	// a) Typing a character like 'x' should NOT append to RemoteURLInput
+	origURL := m.settingsView.RemoteURLInput.Value()
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = res.(*Model)
+	if m.settingsView.RemoteURLInput.Value() != origURL {
+		t.Errorf("Expected RemoteURLInput not to change in Select Mode, got %s", m.settingsView.RemoteURLInput.Value())
+	}
+
+	// b) Pressing 'Tab' in Select Mode should switch to TabDashboard (cycle tabs)
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = res.(*Model)
+	if m.activeTab != TabDashboard {
+		t.Errorf("Expected activeTab TabDashboard after Tab in Settings Select Mode, got %v", m.activeTab)
+	}
+
+	// Go back to Settings
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	m = res.(*Model)
+
+	// c) Pressing '1' in Select Mode should switch to TabDashboard
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = res.(*Model)
+	if m.activeTab != TabDashboard {
+		t.Errorf("Expected activeTab TabDashboard after '1' in Settings Select Mode, got %v", m.activeTab)
+	}
+
+	// Go back to Settings
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	m = res.(*Model)
+
+	// d) Pressing '2' in Select Mode should switch to TabPrograms
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	m = res.(*Model)
+	if m.activeTab != TabPrograms {
+		t.Errorf("Expected activeTab TabPrograms after '2' in Settings Select Mode, got %v", m.activeTab)
+	}
+
+	// Go back to Settings
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	m = res.(*Model)
+
+	// e) Pressing 'down' changes FocusIndex without entering input mode
+	if m.settingsView.FocusIndex != 0 {
+		t.Fatalf("Expected FocusIndex 0 initially")
+	}
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = res.(*Model)
+	if m.settingsView.FocusIndex != 1 {
+		t.Errorf("Expected FocusIndex 1 after down key in Select Mode, got %d", m.settingsView.FocusIndex)
+	}
+
+	// 2. Press 'i' to activate Input Mode
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	m = res.(*Model)
+	if m.settingsView.Mode != views.SettingsModeInput {
+		t.Fatalf("Expected mode SettingsModeInput after pressing 'i', got %v", m.settingsView.Mode)
+	}
+
+	// In Input Mode:
+	// a) Pressing 'Tab' should change input line selection (FocusIndex: 1 -> 0)
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = res.(*Model)
+	if m.activeTab != TabSettings {
+		t.Errorf("Expected activeTab to stay TabSettings on Tab in Input Mode")
+	}
+	if m.settingsView.FocusIndex != 0 {
+		t.Errorf("Expected FocusIndex to toggle to 0 after Tab in Input Mode, got %d", m.settingsView.FocusIndex)
+	}
+
+	// b) Typing should print characters into the input line
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	m = res.(*Model)
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = res.(*Model)
+	if !strings.HasSuffix(m.settingsView.RemoteURLInput.Value(), "g1") {
+		t.Errorf("Expected RemoteURLInput to contain typed 'g1', got %s", m.settingsView.RemoteURLInput.Value())
+	}
+
+	// c) Pressing Alt+i should switch back to Select Mode
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i"), Alt: true})
+	m = res.(*Model)
+	if m.settingsView.Mode != views.SettingsModeSelect {
+		t.Fatalf("Expected mode SettingsModeSelect after Alt+i, got %v", m.settingsView.Mode)
+	}
+
+	// d) Now in Select Mode, pressing '1' should switch tabs again, not type '1'
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = res.(*Model)
+	if m.activeTab != TabDashboard {
+		t.Errorf("Expected activeTab TabDashboard after '1' in Select Mode, got %v", m.activeTab)
+	}
+
+	// e) Test Esc in Input Mode returns to Select Mode
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	m = res.(*Model)
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	m = res.(*Model)
+	if m.settingsView.Mode != views.SettingsModeInput {
+		t.Fatalf("Expected Input Mode")
+	}
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = res.(*Model)
+	if m.settingsView.Mode != views.SettingsModeSelect {
+		t.Errorf("Expected Esc in Input Mode to return to Select Mode, got %v", m.settingsView.Mode)
 	}
 }
