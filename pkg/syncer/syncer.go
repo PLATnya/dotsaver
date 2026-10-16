@@ -47,12 +47,28 @@ func NewSyncer(gitSvc *git.GitService) *Syncer {
 	return &Syncer{Git: gitSvc}
 }
 
+// safePathComponent reduces a manifest-supplied name to a single path element,
+// preventing traversal (e.g. "..", "../../etc") from escaping the repository cache.
+// It falls back to fallback when the sanitized result is empty or unsafe.
+func safePathComponent(name, fallback string) string {
+	s := strings.TrimSpace(strings.ReplaceAll(name, "\\", "/"))
+	s = path.Base(path.Clean(s))
+	if s == "." || s == ".." || s == "/" || s == "" {
+		return fallback
+	}
+	return s
+}
+
 // RepoTargetDir returns the storage path in the repository cache for a specific target: data/<prog>/<os>/<alias>.
+// The program name, OS, and alias are sanitized to single path elements so a crafted manifest cannot escape repoPath.
 func (s *Syncer) RepoTargetDir(repoPath, programName, targetOS, alias string) string {
+	prog := safePathComponent(programName, "program")
 	if alias == "" {
 		alias = programName
 	}
-	return filepath.Join(repoPath, "data", programName, targetOS, alias)
+	alias = safePathComponent(alias, prog)
+	osName := safePathComponent(targetOS, "unknown")
+	return filepath.Join(repoPath, "data", prog, osName, alias)
 }
 
 func resolveAlias(target manifest.Target, progName string) string {
@@ -233,8 +249,12 @@ func (s *Syncer) Sync(repoPath string, m *manifest.Manifest, currentOS string, a
 			}
 
 			if _, err := os.Stat(localPath); err == nil {
-				identical, err := IsIdentical(repoEntry, localPath)
-				if err == nil && identical {
+				identical, cmpErr := IsIdentical(repoEntry, localPath)
+				if cmpErr != nil {
+					rep.Warnings = append(rep.Warnings, fmt.Sprintf("%s: cannot compare %s: %v", prog.Name, localPath, cmpErr))
+					continue
+				}
+				if identical {
 					continue // Already in sync
 				}
 

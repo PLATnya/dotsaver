@@ -109,7 +109,7 @@ func (sv *SettingsView) NextFocus() {
 
 // PrevFocus moves focus to the previous input in the form.
 func (sv *SettingsView) PrevFocus() {
-	sv.FocusIndex = (sv.FocusIndex + 1) % 2
+	sv.FocusIndex = (sv.FocusIndex - 1 + 2) % 2
 	sv.updateFocus()
 }
 

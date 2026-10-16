@@ -543,7 +543,9 @@ func (m *Model) triggerSave() tea.Cmd {
 	m.activeModal = ModalBusy
 	m.spinnerText = "Saving dotfiles to repository cache & pushing..."
 	workerCmd := func() tea.Msg {
-		_ = m.gitSvc.EnsureRepo(m.cfg.RemoteURL, m.cfg.RepoPath)
+		if err := m.gitSvc.EnsureRepo(m.cfg.RemoteURL, m.cfg.RepoPath); err != nil {
+			return saveDoneMsg{err: fmt.Errorf("git repo setup failed: %w", err)}
+		}
 		rep, err := m.syncer.Save(m.cfg.RepoPath, m.manifest, m.currentOS)
 		if err != nil {
 			return saveDoneMsg{report: rep, err: err}
